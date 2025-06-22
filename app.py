@@ -24,7 +24,10 @@ def encrypt_password(password):
     return Fernet(get_key()).encrypt(password.encode())
 
 def decrypt_password(encrypted):
+    if isinstance(encrypted, memoryview):
+        encrypted = encrypted.tobytes()
     return Fernet(get_key()).decrypt(encrypted).decode()
+
 
 # Create tables
 def init_db():
