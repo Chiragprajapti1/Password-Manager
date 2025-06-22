@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h2>🔐 Your Password Vault</h2>
+        <form method="POST">
+            <input type="text" name="site" placeholder="Site Name" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit">Save</button>
+        </form>
+        <h3>Saved Passwords</h3>
+        <ul>
+            {% for site, password in passwords %}
+                <li><strong>{{ site }}:</strong> {{ password }}</li>
+            {% endfor %}
+        </ul>
+        <a href="/logout"><button>Logout</button></a>
+    </div>
+</body>
+</html>
