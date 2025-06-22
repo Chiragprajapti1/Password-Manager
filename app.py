@@ -1,13 +1,21 @@
 from flask import Flask, render_template, request, redirect, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 from cryptography.fernet import Fernet
-import sqlite3
+import psycopg2
 import os
+from urllib.parse import urlparse
 
 app = Flask(__name__)
-app.secret_key = 'supersecretkey'  # Change this in production!
+app.secret_key = 'supersecretkey'
 
-# Generate encryption key if not exists
+# Load DB URL from environment (Render provides this)
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+# Set up DB connection
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
+
+# Generate encryption key
 if not os.path.exists("key.key"):
     with open("key.key", "wb") as key_file:
         key_file.write(Fernet.generate_key())
@@ -21,20 +29,28 @@ def encrypt_password(password):
 def decrypt_password(encrypted):
     return Fernet(get_key()).decrypt(encrypted).decode()
 
+# Create tables
 def init_db():
-    with sqlite3.connect("users.db") as conn:
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        email TEXT UNIQUE,
-                        password TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS passwords (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER,
-                        site TEXT,
-                        password BLOB,
-                        FOREIGN KEY(user_id) REFERENCES users(id))''')
-        conn.commit()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            email TEXT UNIQUE,
+            password TEXT
+        );
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS passwords (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id),
+            site TEXT,
+            password BYTEA
+        );
+    ''')
+    conn.commit()
+    cur.close()
+    conn.close()
 
 @app.route('/')
 def index():
@@ -47,14 +63,17 @@ def register():
     if request.method == 'POST':
         email = request.form['email']
         password = generate_password_hash(request.form['password'])
+
         try:
-            with sqlite3.connect("users.db") as conn:
-                c = conn.cursor()
-                c.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, password))
-                conn.commit()
-                flash("Registration successful. Please login.")
-                return redirect('/login')
-        except sqlite3.IntegrityError:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("INSERT INTO users (email, password) VALUES (%s, %s)", (email, password))
+            conn.commit()
+            cur.close()
+            conn.close()
+            flash("Registration successful. Please login.")
+            return redirect('/login')
+        except Exception as e:
             flash("Email already registered.")
     return render_template('register.html')
 
@@ -63,15 +82,19 @@ def login():
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
-        with sqlite3.connect("users.db") as conn:
-            c = conn.cursor()
-            c.execute("SELECT id, password FROM users WHERE email = ?", (email,))
-            user = c.fetchone()
-            if user and check_password_hash(user[1], password):
-                session['user_id'] = user[0]
-                return redirect('/dashboard')
-            else:
-                flash("Invalid credentials.")
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, password FROM users WHERE email = %s", (email,))
+        user = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if user and check_password_hash(user[1], password):
+            session['user_id'] = user[0]
+            return redirect('/dashboard')
+        else:
+            flash("Invalid credentials.")
     return render_template('login.html')
 
 @app.route('/dashboard', methods=['GET', 'POST'])
@@ -79,15 +102,21 @@ def dashboard():
     if 'user_id' not in session:
         return redirect('/login')
     user_id = session['user_id']
-    with sqlite3.connect("users.db") as conn:
-        c = conn.cursor()
-        if request.method == 'POST':
-            site = request.form['site']
-            password = encrypt_password(request.form['password'])
-            c.execute("INSERT INTO passwords (user_id, site, password) VALUES (?, ?, ?)", (user_id, site, password))
-            conn.commit()
-        c.execute("SELECT site, password FROM passwords WHERE user_id = ?", (user_id,))
-        data = [(site, decrypt_password(pwd)) for site, pwd in c.fetchall()]
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    if request.method == 'POST':
+        site = request.form['site']
+        password = encrypt_password(request.form['password'])
+        cur.execute("INSERT INTO passwords (user_id, site, password) VALUES (%s, %s, %s)", (user_id, site, password))
+        conn.commit()
+
+    cur.execute("SELECT site, password FROM passwords WHERE user_id = %s", (user_id,))
+    data = [(site, decrypt_password(pwd)) for site, pwd in cur.fetchall()]
+
+    cur.close()
+    conn.close()
     return render_template('dashboard.html', passwords=data)
 
 @app.route('/logout')
@@ -97,4 +126,4 @@ def logout():
 
 if __name__ == "__main__":
     init_db()
-    app.run(debug=True)
+    app.run(debug=False)
