@@ -23,10 +23,18 @@ def get_key():
 def encrypt_password(password):
     return Fernet(get_key()).encrypt(password.encode())
 
+from cryptography.fernet import InvalidToken
+
 def decrypt_password(encrypted):
     if isinstance(encrypted, memoryview):
         encrypted = encrypted.tobytes()
-    return Fernet(get_key()).decrypt(encrypted).decode()
+    if not encrypted or not isinstance(encrypted, (bytes, str)):
+        return "Invalid Data"
+    try:
+        return Fernet(get_key()).decrypt(encrypted).decode()
+    except InvalidToken:
+        return "Invalid Token (Key mismatch)"
+
 
 
 # Create tables
