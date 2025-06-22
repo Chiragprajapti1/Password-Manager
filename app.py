@@ -16,12 +16,9 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 # Generate encryption key
-if not os.path.exists("key.key"):
-    with open("key.key", "wb") as key_file:
-        key_file.write(Fernet.generate_key())
-
 def get_key():
-    return open("key.key", "rb").read()
+    return os.environ.get("FERNET_KEY").encode()
+
 
 def encrypt_password(password):
     return Fernet(get_key()).encrypt(password.encode())
