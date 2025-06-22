@@ -124,6 +124,8 @@ def logout():
     session.clear()
     return redirect('/')
 
+# Make sure the database is initialized on import (for Render + Gunicorn)
+init_db()
+
 if __name__ == "__main__":
-    init_db()
     app.run(debug=False)
